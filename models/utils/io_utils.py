@@ -1,11 +1,10 @@
 from pathlib import Path
+import json
+import shutil
 
 from pyspark.sql import DataFrame
 
 from models.utils.logger import get_logger
-import json
-import os
-import shutil
 
 logger = get_logger(__name__)
 
@@ -31,10 +30,12 @@ def ensure_directory_exists(
 # Parquet Writer
 # =========================================================
 
+
 def write_parquet(
     dataframe: DataFrame,
     output_path: str,
-    partition_columns: list[str] | None = None
+    partition_columns: list[str] | None = None,
+    mode: str = "overwrite"
 ) -> None:
     """
     Write dataframe as parquet.
@@ -44,10 +45,11 @@ def write_parquet(
 
     writer = (
         dataframe.write
-        .mode("overwrite")
+        .mode(mode)
     )
 
     if partition_columns:
+
         writer = writer.partitionBy(
             *partition_columns
         )
@@ -55,9 +57,9 @@ def write_parquet(
     writer.parquet(output_path)
 
     logger.info(
-        f"Parquet written successfully: {output_path}"
+        f"Parquet written successfully: "
+        f"{output_path}"
     )
-
 
 # =========================================================
 # CSV Writer
@@ -65,7 +67,8 @@ def write_parquet(
 
 def write_csv(
     dataframe: DataFrame,
-    output_path: str
+    output_path: str,
+    mode: str = "overwrite"
 ) -> None:
     """
     Write dataframe as CSV.
@@ -75,13 +78,14 @@ def write_csv(
 
     (
         dataframe.write
-        .mode("overwrite")
+        .mode(mode)
         .option("header", True)
         .csv(output_path)
     )
 
     logger.info(
-        f"CSV written successfully: {output_path}"
+        f"CSV written successfully: "
+        f"{output_path}"
     )
 
 
@@ -89,17 +93,42 @@ def write_csv(
 # JSON Writer (for Python dicts ONLY)
 # =========================================================
 
-def write_json(data: dict, output_path: str) -> None:
+def write_json(
+    data: dict,
+    output_path: str
+) -> None:
+    """
+    Write Python dictionary as JSON file.
+    """
+
     output_path = Path(output_path)
 
-    # 🧨 If a folder exists with same name → remove it
-    if output_path.exists() and output_path.is_dir():
+    # Remove directory if same name exists
+    if (
+        output_path.exists()
+        and output_path.is_dir()
+    ):
         shutil.rmtree(output_path)
 
-    # ✅ only create parent directory
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    # Create parent directories only
+    output_path.parent.mkdir(
+        parents=True,
+        exist_ok=True
+    )
 
-    with open(output_path, "w") as f:
-        json.dump(data, f, indent=2)
+    with open(
+        output_path,
+        "w",
+        encoding="utf-8"
+    ) as f:
+        json.dump(
+            data,
+            f,
+            indent=2
+        )
 
-    logger.info(f"JSON written successfully: {output_path}")
+    logger.info(
+        f"JSON written successfully: "
+        f"{output_path}"
+    )
+

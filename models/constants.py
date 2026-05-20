@@ -70,7 +70,7 @@ DIM_PERIOD = "dim_period"
 # =========================================================
 
 FACT_PARTITIONS = [
-    "health_area",
+    
     "year_month"
 ]
 

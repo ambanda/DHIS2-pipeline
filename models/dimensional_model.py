@@ -196,6 +196,10 @@ def build_dim_period(
 # Build Fact Table
 # =========================================================
 
+# =========================================================
+# Build Fact Table
+# =========================================================
+
 def build_fact_service_delivery(
     clean_fact_df: DataFrame
 ) -> DataFrame:
@@ -208,6 +212,10 @@ def build_fact_service_delivery(
         clean_fact_df
         .select(
 
+            # =================================================
+            # Dimension Keys
+            # =================================================
+
             col("dataelement")
             .alias("data_element_id"),
 
@@ -219,42 +227,49 @@ def build_fact_service_delivery(
                 "category_option_combo_id"
             ),
 
+            # =================================================
+            # Time Dimensions
+            # =================================================
+
             "year_month",
 
-            "data_element_name",
+            # =================================================
+            # Descriptive Attributes
+            # =================================================
 
+            "data_element_name",
             "category_option_combo_name",
 
             "country_name",
-
             "region_name",
-
             "district_name",
-
             "facility_name",
 
+            # =================================================
+            # Measures
+            # =================================================
+
             "value",
-
             "numeric_value",
-
             "boolean_value",
 
+            # =================================================
+            # DQ Attributes
+            # =================================================
+
             "value_type",
-
             "is_null_value",
-
             "is_blank_value",
-
             "is_zero_value",
-
             "has_reported_value",
-
             "has_valid_numeric_value",
-
             "is_late_submission",
 
-            "created",
+            # =================================================
+            # Audit Columns
+            # =================================================
 
+            "created",
             "lastupdated"
         )
 
@@ -271,7 +286,6 @@ def build_fact_service_delivery(
     )
 
     return fact_df
-
 
 # =========================================================
 # Write Dimensions
@@ -329,6 +343,10 @@ def write_dimensions(
 # Write Fact Table
 # =========================================================
 
+# =========================================================
+# Write Fact Table
+# =========================================================
+
 def write_fact_table(
     fact_df: DataFrame
 ) -> None:
@@ -337,9 +355,26 @@ def write_fact_table(
         "Writing fact table"
     )
 
+    logger.info(
+        f"Fact partitions: {FACT_PARTITIONS}"
+    )
+
+    missing_partitions = [
+        column
+        for column in FACT_PARTITIONS
+        if column not in fact_df.columns
+    ]
+
+    if missing_partitions:
+
+        raise ValueError(
+            "Missing partition columns in fact dataframe: "
+            f"{missing_partitions}"
+        )
+
     write_parquet(
-        fact_df,
-        str(
+        dataframe=fact_df,
+        output_path=str(
             FACTS_DIR
             / "fact_service_delivery"
         ),

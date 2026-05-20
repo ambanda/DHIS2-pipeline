@@ -2,8 +2,9 @@ from pyspark.sql import DataFrame
 from pyspark.sql.functions import (
     broadcast,
     col,
-    split,
+    element_at,
     size,
+    split,
     when
 )
 
@@ -16,61 +17,92 @@ logger = get_logger(__name__)
 
 
 # =========================================================
-# Build Org Hierarchy Columns
+# Build Organization Hierarchy
 # =========================================================
 
 def build_org_hierarchy(
     org_units_df: DataFrame
 ) -> DataFrame:
     """
-    Build dynamic hierarchy columns from path.
+    Build organization hierarchy columns from
+    DHIS2 path structure.
+
+    Example DHIS2 path:
+        /UID_COUNTRY/UID_REGION/UID_DISTRICT/UID_FACILITY
+
+    Notes:
+    - DHIS2 paths begin with "/"
+    - split() therefore creates an empty first element
+    - element_at() uses 1-based indexing
     """
 
-    logger.info("Building organization hierarchy")
+    logger.info(
+        "Building organization hierarchy"
+    )
 
     hierarchy_df = (
+
         org_units_df
+
         .select(
             "id",
             "name",
-            "path"
+            "shortname",
+            "code",
+            "level",
+            "path",
+            "created",
+            "lastupdated"
         )
+
         .withColumn(
             "path_array",
             split(col("path"), "/")
         )
-    )
 
-    hierarchy_df = (
-        hierarchy_df
+        # =================================================
+        # Hierarchy UID Columns
+        # =================================================
+
         .withColumn(
             "country_uid",
             when(
                 size(col("path_array")) > 1,
-                col("path_array")[1]
+                element_at(col("path_array"), 2)
             )
         )
+
         .withColumn(
             "region_uid",
             when(
                 size(col("path_array")) > 2,
-                col("path_array")[2]
+                element_at(col("path_array"), 3)
             )
         )
+
         .withColumn(
             "district_uid",
             when(
                 size(col("path_array")) > 3,
-                col("path_array")[3]
+                element_at(col("path_array"), 4)
             )
         )
+
         .withColumn(
             "facility_uid",
             when(
                 size(col("path_array")) > 4,
-                col("path_array")[4]
+                element_at(col("path_array"), 5)
             ).otherwise(col("id"))
         )
+
+        .drop("path_array")
+    )
+
+    log_row_count(
+        logger,
+        hierarchy_df,
+        "hierarchy_df"
     )
 
     logger.info(
@@ -88,78 +120,146 @@ def resolve_hierarchy_names(
     hierarchy_df: DataFrame
 ) -> DataFrame:
     """
-    Resolve hierarchy UID names using self joins.
+    Resolve hierarchy names using optimized
+    reusable lookup dataframe.
+
+    Optimizations:
+    - Single reusable lookup dataframe
+    - Broadcast joins
+    - Reduced Spark lineage complexity
+    - Cleaner execution plans
     """
 
-    logger.info("Resolving hierarchy names")
-
-    country_lookup = (
-        hierarchy_df
-        .select(
-            col("id").alias("country_uid_lookup"),
-            col("name").alias("country_name")
-        )
+    logger.info(
+        "Resolving hierarchy names"
     )
 
-    region_lookup = (
+    # =====================================================
+    # Reusable Lookup DataFrame
+    # =====================================================
+
+    lookup_df = (
+
         hierarchy_df
+
         .select(
-            col("id").alias("region_uid_lookup"),
-            col("name").alias("region_name")
+            col("id").alias("lookup_uid"),
+            col("name").alias("lookup_name")
         )
+
+        .dropDuplicates(
+            ["lookup_uid"]
+        )
+
+        .cache()
     )
 
-    district_lookup = (
-        hierarchy_df
-        .select(
-            col("id").alias("district_uid_lookup"),
-            col("name").alias("district_name")
-        )
-    )
-
-    facility_lookup = (
-        hierarchy_df
-        .select(
-            col("id").alias("facility_uid_lookup"),
-            col("name").alias("facility_name")
-        )
-    )
+    # =====================================================
+    # Resolve Hierarchy Names
+    # =====================================================
 
     resolved_df = (
+
         hierarchy_df
 
+        # =================================================
+        # Country
+        # =================================================
+
         .join(
-            broadcast(country_lookup),
+            broadcast(
+                lookup_df.alias("country")
+            ),
             col("country_uid")
-            == col("country_uid_lookup"),
+            == col("country.lookup_uid"),
             "left"
         )
-        .drop("country_uid_lookup")
+
+        .withColumn(
+            "country_name",
+            col("country.lookup_name")
+        )
+
+        .drop(
+            "country.lookup_uid",
+            "country.lookup_name"
+        )
+
+        # =================================================
+        # Region
+        # =================================================
 
         .join(
-            broadcast(region_lookup),
+            broadcast(
+                lookup_df.alias("region")
+            ),
             col("region_uid")
-            == col("region_uid_lookup"),
+            == col("region.lookup_uid"),
             "left"
         )
-        .drop("region_uid_lookup")
+
+        .withColumn(
+            "region_name",
+            col("region.lookup_name")
+        )
+
+        .drop(
+            "region.lookup_uid",
+            "region.lookup_name"
+        )
+
+        # =================================================
+        # District
+        # =================================================
 
         .join(
-            broadcast(district_lookup),
+            broadcast(
+                lookup_df.alias("district")
+            ),
             col("district_uid")
-            == col("district_uid_lookup"),
+            == col("district.lookup_uid"),
             "left"
         )
-        .drop("district_uid_lookup")
+
+        .withColumn(
+            "district_name",
+            col("district.lookup_name")
+        )
+
+        .drop(
+            "district.lookup_uid",
+            "district.lookup_name"
+        )
+
+        # =================================================
+        # Facility
+        # =================================================
 
         .join(
-            broadcast(facility_lookup),
+            broadcast(
+                lookup_df.alias("facility")
+            ),
             col("facility_uid")
-            == col("facility_uid_lookup"),
+            == col("facility.lookup_uid"),
             "left"
         )
-        .drop("facility_uid_lookup")
+
+        .withColumn(
+            "facility_name",
+            col("facility.lookup_name")
+        )
+
+        .drop(
+            "facility.lookup_uid",
+            "facility.lookup_name"
+        )
     )
+
+    # =====================================================
+    # Cleanup
+    # =====================================================
+
+    lookup_df.unpersist()
 
     logger.info(
         "Hierarchy name resolution completed"
@@ -177,46 +277,86 @@ def enrich_fact_with_org_hierarchy(
     hierarchy_df: DataFrame
 ) -> tuple[DataFrame, DataFrame]:
     """
-    Enrich fact records with hierarchy dimensions.
+    Enrich fact records with organization hierarchy.
 
     Returns:
-        enriched_df,
-        unresolved_org_units_df
+        (
+            enriched_fact_df,
+            unresolved_org_units_df
+        )
     """
 
     logger.info(
         "Enriching fact records with hierarchy"
     )
 
-    hierarchy_lookup = (
+    # =====================================================
+    # Hierarchy Lookup
+    # =====================================================
+
+    hierarchy_lookup_df = (
+
         hierarchy_df
+
         .select(
             col("id").alias("orgunit_uid"),
+
             "country_name",
             "region_name",
             "district_name",
             "facility_name"
         )
+
+        .dropDuplicates(
+            ["orgunit_uid"]
+        )
     )
 
+    # =====================================================
+    # Enrich Fact Data
+    # =====================================================
+
     enriched_df = (
+
         fact_df.alias("fact")
+
         .join(
-            broadcast(hierarchy_lookup).alias("org"),
+            broadcast(
+                hierarchy_lookup_df
+            ).alias("org"),
             col("fact.orgunit")
             == col("org.orgunit_uid"),
             "left"
         )
+
         .drop("orgunit_uid")
     )
 
-    unresolved_org_units_df = enriched_df.filter(
-        col("facility_name").isNull()
+    # =====================================================
+    # Quarantine Unresolved Org Units
+    # =====================================================
+
+    unresolved_org_units_df = (
+
+        enriched_df
+
+        .filter(
+            col("facility_name").isNull()
+        )
     )
 
-    enriched_df = enriched_df.filter(
-        col("facility_name").isNotNull()
+    enriched_df = (
+
+        enriched_df
+
+        .filter(
+            col("facility_name").isNotNull()
+        )
     )
+
+    # =====================================================
+    # Logging
+    # =====================================================
 
     log_row_count(
         logger,
@@ -234,4 +374,7 @@ def enrich_fact_with_org_hierarchy(
         "Fact enrichment completed"
     )
 
-    return enriched_df, unresolved_org_units_df
+    return (
+        enriched_df,
+        unresolved_org_units_df
+    )
