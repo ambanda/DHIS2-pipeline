@@ -1,0 +1,65 @@
+table_name: fact_service_delivery
+
+primary_grain:
+  - data_element_id
+  - org_unit_id
+  - category_option_combo_id
+  - year_month
+
+columns:
+
+  - name: data_element_id
+    type: string
+    nullable: false
+
+  - name: org_unit_id
+    type: string
+    nullable: false
+
+  - name: category_option_combo_id
+    type: string
+    nullable: false
+
+  - name: year_month
+    type: string
+    nullable: false
+
+  - name: data_element_name
+    type: string
+    nullable: false
+
+  - name: country_name
+    type: string
+    nullable: false
+
+  - name: facility_name
+    type: string
+    nullable: false
+
+  - name: numeric_value
+    type: double
+    nullable: true
+    min_value: 0
+    max_value: 1000000
+
+  - name: boolean_value
+    type: boolean
+    nullable: true
+
+  - name: value_type
+    type: string
+    nullable: false
+
+  - name: is_late_submission
+    type: boolean
+    nullable: false
+
+  - name: has_reported_value
+    type: boolean
+    nullable: false
+
+  - name: load_timestamp
+    type: timestamp
+    nullable: false
+
+    
