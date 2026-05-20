@@ -12,3 +12,39 @@ logs/
 .vscode/
 
 *.parquet
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+
+# Virtual environments
+venv/
+.env/
+venv310
+
+# Spark
+metastore_db/
+spark-warehouse/
+
+# VS Code
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+*.tar
+
+# Output data
+output/
+checkpoints/
+
+# Large data files
+data/
+metadata_snapshots/
+
+# Environment files
+.env
