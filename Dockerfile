@@ -24,6 +24,13 @@ RUN wget -O- https://packages.adoptium.net/artifactory/api/gpg/key/public | gpg 
 # ===============================
 ENV JAVA_HOME=/usr/lib/jvm/temurin-17-jdk-amd64
 ENV PATH="$JAVA_HOME/bin:$PATH"
+ENV SPARK_MASTER=local[2]
+ENV SPARK_DRIVER_MEMORY=2g
+ENV SPARK_EXECUTOR_MEMORY=2g
+ENV SPARK_SQL_SHUFFLE_PARTITIONS=4
+ENV SPARK_SQL_MAX_RECORDS_PER_FILE=250000
+ENV DQ_MAX_QUARANTINE_RATE=0.25
+ENV MALLOC_ARENA_MAX=2
 
 # ===============================
 # App setup

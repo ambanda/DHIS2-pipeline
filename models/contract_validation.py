@@ -5,7 +5,10 @@ from pyspark.sql import DataFrame
 from pyspark.sql.functions import (
     col,
     min,
-    max
+    max,
+    count,
+    sum as spark_sum,
+    when
 )
 
 from models.utils.logger import (
@@ -148,26 +151,45 @@ def validate_nullability(
         "Validating nullability"
     )
 
-    for column in contract["columns"]:
+    required_columns = [
+        column["name"]
+        for column in contract["columns"]
+        if not column["nullable"]
+    ]
 
-        if not column["nullable"]:
+    if not required_columns:
 
-            null_count = (
-                dataframe
-                .filter(
-                    col(column["name"]).isNull()
-                )
-                .count()
-            )
+        return
 
-            if null_count > 0:
+    null_count_expressions = [
+        spark_sum(
+            when(
+                col(column_name).isNull(),
+                1
+            ).otherwise(0)
+        ).alias(column_name)
+        for column_name in required_columns
+    ]
 
-                raise ValueError(
-                    f"Column "
-                    f"{column['name']} "
-                    f"contains "
-                    f"{null_count} null values"
-                )
+    null_counts = (
+        dataframe
+        .select(*null_count_expressions)
+        .collect()[0]
+        .asDict()
+    )
+
+    violations = {
+        column_name: null_count
+        for column_name, null_count in null_counts.items()
+        if null_count and null_count > 0
+    }
+
+    if violations:
+
+        raise ValueError(
+            f"Non-nullable columns contain nulls: "
+            f"{violations}"
+        )
 
 
 # =========================================================
@@ -186,55 +208,73 @@ def validate_numeric_ranges(
         "Validating numeric ranges"
     )
 
-    for column in contract["columns"]:
-
+    range_columns = [
+        column
+        for column in contract["columns"]
         if (
             "min_value" in column
             or "max_value" in column
+        )
+    ]
+
+    if not range_columns:
+
+        return
+
+    aggregate_expressions = []
+
+    for column in range_columns:
+
+        column_name = column["name"]
+
+        aggregate_expressions.extend(
+            [
+                min(
+                    col(column_name)
+                ).alias(f"{column_name}__min"),
+
+                max(
+                    col(column_name)
+                ).alias(f"{column_name}__max")
+            ]
+        )
+
+    stats = (
+        dataframe
+        .select(*aggregate_expressions)
+        .collect()[0]
+        .asDict()
+    )
+
+    for column in range_columns:
+
+        column_name = column["name"]
+        actual_min = stats[f"{column_name}__min"]
+        actual_max = stats[f"{column_name}__max"]
+
+        if (
+            "min_value" in column
+            and actual_min is not None
+            and actual_min < column["min_value"]
         ):
 
-            column_name = column["name"]
-
-            stats = (
-                dataframe
-                .select(
-                    min(
-                        col(column_name)
-                    ).alias("min_value"),
-
-                    max(
-                        col(column_name)
-                    ).alias("max_value")
-                )
-                .collect()[0]
+            raise ValueError(
+                f"{column_name} "
+                f"contains values below "
+                f"minimum allowed value"
             )
 
-            actual_min = stats["min_value"]
-            actual_max = stats["max_value"]
+        if (
+            "max_value" in column
+            and actual_max is not None
+            and actual_max > column["max_value"]
+        ):
 
-            if (
-                "min_value" in column
-                and actual_min is not None
-                and actual_min < column["min_value"]
-            ):
-
-                raise ValueError(
-                    f"{column_name} "
-                    f"contains values below "
-                    f"minimum allowed value"
-                )
-
-            if (
-                "max_value" in column
-                and actual_max is not None
-                and actual_max > column["max_value"]
-            ):
-
-                raise ValueError(
-                    f"{column_name} "
-                    f"contains values above "
-                    f"maximum allowed value"
-                )
+            raise ValueError(
+                f"{column_name} "
+                f"contains values above "
+                f"maximum allowed value"
+            )
 
 
 # =========================================================
@@ -257,24 +297,40 @@ def validate_primary_grain(
         "primary_grain"
     ]
 
-    total_rows = dataframe.count()
-
-    unique_rows = (
+    total_rows = (
         dataframe
-        .dropDuplicates(grain_columns)
-        .count()
+        .select(
+            count("*").alias("row_count")
+        )
+        .collect()[0]["row_count"]
     )
 
-    if total_rows != unique_rows:
-
-        duplicate_count = (
-            total_rows - unique_rows
+    duplicate_rows = (
+        dataframe
+        .groupBy(*grain_columns)
+        .agg(
+            count("*").alias("grain_count")
         )
+        .filter(
+            col("grain_count") > 1
+        )
+        .select(
+            spark_sum(
+                col("grain_count") - 1
+            ).alias("duplicate_rows")
+        )
+        .collect()[0]["duplicate_rows"]
+    )
+
+    duplicate_rows = duplicate_rows or 0
+
+    if duplicate_rows > 0:
 
         raise ValueError(
             f"Fact table grain violation. "
             f"Found "
-            f"{duplicate_count} duplicate rows."
+            f"{duplicate_rows} duplicate rows "
+            f"out of {total_rows} rows."
         )
 
 

@@ -34,6 +34,63 @@ from models.utils.dq_metrics import (
 logger = get_logger(__name__)
 
 
+DQ_FACT_COLUMNS = [
+    "dataelement",
+    "period",
+    "orgunit",
+    "categoryoptioncombo",
+    "attributeoptioncombo",
+    "value",
+    "storedby",
+    "created",
+    "lastupdated",
+    "followup",
+    "year_month",
+    "period_start_date",
+    "period_end_date",
+    "year",
+    "month",
+    "quarter",
+    "data_element_name",
+    "category_option_combo_name",
+    "country_name",
+    "region_name",
+    "district_name",
+    "facility_name",
+    "value_type"
+]
+
+
+def prune_fact_columns(
+    dataframe: DataFrame
+) -> DataFrame:
+    """
+    Keep only fact-stream columns required downstream.
+    """
+
+    existing_columns = [
+        column_name
+        for column_name in DQ_FACT_COLUMNS
+        if column_name in dataframe.columns
+    ]
+
+    missing_columns = [
+        column_name
+        for column_name in DQ_FACT_COLUMNS
+        if column_name not in dataframe.columns
+    ]
+
+    if missing_columns:
+
+        logger.warning(
+            f"DQ input missing optional columns: {missing_columns}"
+        )
+
+    return dataframe.select(
+        *existing_columns
+    )
+
+
 # =========================================================
 # Exact Duplicate Processing
 # =========================================================
@@ -60,6 +117,8 @@ def process_exact_duplicates(
 
     logger.info(f"Exact duplicate rate: {duplicate_rate:.4f}")
 
+    dataframe.unpersist()
+
     return clean_df, duplicate_df
 
 
@@ -70,9 +129,6 @@ def process_exact_duplicates(
 def process_near_duplicates(
     dataframe: DataFrame
 ) -> tuple[DataFrame, DataFrame]:
-
-    logger.info("DQ dataframe schema:")
-    dataframe.printSchema()
 
     logger.info(f"DQ dataframe columns: {dataframe.columns}")
 
@@ -166,6 +222,10 @@ def add_completeness_flags(dataframe: DataFrame) -> DataFrame:
 def run_dq_pipeline(dataframe: DataFrame) -> dict:
 
     logger.info("Starting DQ pipeline")
+
+    dataframe = prune_fact_columns(
+        dataframe
+    )
 
     # ---------------------------
     # Step 1: exact duplicates

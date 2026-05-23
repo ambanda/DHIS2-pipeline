@@ -5,7 +5,8 @@ from models.config import (
     CONTRACTS_DIR,
     DQ_THRESHOLDS,
     ENABLE_INCREMENTAL_LOADING,
-    METADATA_SNAPSHOT_DIR
+    METADATA_SNAPSHOT_DIR,
+    STAGING_DIR
 )
 
 from models.utils.logger import (
@@ -16,6 +17,10 @@ from models.utils.spark_utils import (
     create_spark_session,
     safe_cache,
     safe_unpersist
+)
+
+from models.utils.io_utils import (
+    materialize_parquet
 )
 
 from models.utils.dq_metrics import (
@@ -80,6 +85,14 @@ from models.analytics import (
 
 from models.contract_validation import (
     validate_dataframe_contract
+)
+
+from models.quarantine import (
+    write_quarantine_outputs
+)
+
+from models.pipeline_state import (
+    write_success_checkpoint
 )
 
 
@@ -330,6 +343,18 @@ def run_pipeline() -> None:
             "superseded_records_df"
         ]
 
+        clean_fact_df = materialize_parquet(
+            dataframe=clean_fact_df,
+            output_path=str(
+                STAGING_DIR
+                / "clean_fact"
+            ),
+            dataframe_name="clean_fact_df",
+            partition_columns=[
+                "year_month"
+            ]
+        )
+
         clean_fact_df = safe_cache(
             clean_fact_df,
             "clean_fact_df"
@@ -367,6 +392,23 @@ def run_pipeline() -> None:
             build_fact_service_delivery(
                 clean_fact_df
             )
+        )
+
+        fact_df = materialize_parquet(
+            dataframe=fact_df,
+            output_path=str(
+                STAGING_DIR
+                / "fact_service_delivery_work"
+            ),
+            dataframe_name="fact_service_delivery_work",
+            partition_columns=[
+                "year_month"
+            ]
+        )
+
+        fact_df = safe_cache(
+            fact_df,
+            "fact_df"
         )
 
         fact_row_count = (
@@ -473,6 +515,25 @@ def run_pipeline() -> None:
             f"{total_quarantine_rows:,}"
         )
 
+        write_quarantine_outputs(
+            {
+                "unresolved_data_elements":
+                    unresolved_data_elements_df,
+
+                "unresolved_category_option_combos":
+                    unresolved_cocs_df,
+
+                "unresolved_org_units":
+                    unresolved_org_units_df,
+
+                "exact_duplicates":
+                    exact_duplicates_df,
+
+                "superseded_records":
+                    superseded_records_df
+            }
+        )
+
         # =================================================
         # FINAL DQ VALIDATION
         # =================================================
@@ -483,6 +544,14 @@ def run_pipeline() -> None:
             fact_row_count
         )
 
+        write_success_checkpoint(
+            {
+                "input_rows": total_input_rows,
+                "fact_rows": fact_row_count,
+                "quarantine_rows": total_quarantine_rows
+            }
+        )
+
         # =================================================
         # CLEANUP
         # =================================================
@@ -490,6 +559,11 @@ def run_pipeline() -> None:
         safe_unpersist(
             clean_fact_df,
             "clean_fact_df"
+        )
+
+        safe_unpersist(
+            fact_df,
+            "fact_df"
         )
 
         logger.info("=" * 60)

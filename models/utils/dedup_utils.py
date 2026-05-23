@@ -82,7 +82,7 @@ def remove_exact_duplicates(
 
     deduped_df = dataframe.dropDuplicates()
 
-    duplicate_df = dataframe.subtract(deduped_df)
+    duplicate_df = dataframe.exceptAll(deduped_df)
 
     return deduped_df, duplicate_df
 

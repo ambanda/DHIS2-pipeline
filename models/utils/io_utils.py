@@ -3,6 +3,7 @@ import json
 import shutil
 
 from pyspark.sql import DataFrame
+from pyspark.sql.functions import col
 
 from models.utils.logger import get_logger
 
@@ -35,7 +36,8 @@ def write_parquet(
     dataframe: DataFrame,
     output_path: str,
     partition_columns: list[str] | None = None,
-    mode: str = "overwrite"
+    mode: str = "overwrite",
+    max_records_per_file: int | None = None
 ) -> None:
     """
     Write dataframe as parquet.
@@ -48,10 +50,24 @@ def write_parquet(
         .mode(mode)
     )
 
+    if max_records_per_file:
+
+        writer = writer.option(
+            "maxRecordsPerFile",
+            max_records_per_file
+        )
+
     if partition_columns:
 
-        writer = writer.partitionBy(
-            *partition_columns
+        writer = (
+            writer
+            .option(
+                "partitionOverwriteMode",
+                "dynamic"
+            )
+            .partitionBy(
+                *partition_columns
+            )
         )
 
     writer.parquet(output_path)
@@ -60,6 +76,54 @@ def write_parquet(
         f"Parquet written successfully: "
         f"{output_path}"
     )
+
+
+def materialize_parquet(
+    dataframe: DataFrame,
+    output_path: str,
+    dataframe_name: str,
+    partition_columns: list[str] | None = None,
+    max_records_per_file: int | None = 250000
+) -> DataFrame:
+    """
+    Persist and reload a dataframe to break Spark lineage.
+    """
+
+    logger.info(
+        f"Materializing dataframe: {dataframe_name}"
+    )
+
+    write_parquet(
+        dataframe=dataframe,
+        output_path=output_path,
+        partition_columns=partition_columns,
+        mode="overwrite",
+        max_records_per_file=max_records_per_file
+    )
+
+    materialized_df = (
+        dataframe
+        .sparkSession
+        .read
+        .parquet(output_path)
+    )
+
+    if partition_columns:
+
+        for partition_column in partition_columns:
+
+            if partition_column in materialized_df.columns:
+
+                materialized_df = materialized_df.withColumn(
+                    partition_column,
+                    col(partition_column).cast("string")
+                )
+
+    logger.info(
+        f"Materialized dataframe loaded: {dataframe_name}"
+    )
+
+    return materialized_df
 
 # =========================================================
 # CSV Writer

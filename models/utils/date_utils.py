@@ -25,13 +25,17 @@ def add_period_dates(
     Convert yyyyMM period into usable date columns.
     """
 
-    return (
+    transformed_df = (
         dataframe
+        .withColumn(
+            "year_month",
+            col(period_column)
+        )
         .withColumn(
             "period_start_date",
             to_date(
                 concat(
-                    col(period_column),
+                    col("year_month"),
                     lit("01")
                 ),
                 "yyyyMMdd"
@@ -53,11 +57,9 @@ def add_period_dates(
             "quarter",
             quarter(col("period_start_date"))
         )
-        .withColumnRenamed(
-            period_column,
-            "year_month"
-        )
     )
+
+    return transformed_df
 
 
 # =========================================================

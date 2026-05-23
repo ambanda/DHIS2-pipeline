@@ -20,6 +20,7 @@ from models.utils.spark_utils import (
 )
 
 from models.utils.date_utils import (
+    add_period_dates,
     standardize_timestamps
 )
 
@@ -440,6 +441,10 @@ def ingest_data_values(
             "created",
             "lastupdated"
         ]
+    )
+
+    data_values_df = add_period_dates(
+        data_values_df
     )
 
     log_row_count(

@@ -1,8 +1,6 @@
 
 
-from typing import Dict
 from pathlib import Path
-from dataclasses import dataclass
 import os
 import sys
 
@@ -16,18 +14,29 @@ PYTHON_EXECUTABLE = sys.executable
 # Base Directory
 # =========================================================
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_DIR = Path(
+    os.getenv(
+        "PIPELINE_BASE_DIR",
+        Path(__file__).resolve().parent.parent
+    )
+)
 
 
 # =========================================================
 # Data Directories
 # =========================================================
 
-DATA_DIR = BASE_DIR / "data"
+DATA_DIR = Path(
+    os.getenv("PIPELINE_DATA_DIR", BASE_DIR / "data")
+)
 
-OUTPUT_DIR = BASE_DIR / "output"
+OUTPUT_DIR = Path(
+    os.getenv("PIPELINE_OUTPUT_DIR", BASE_DIR / "output")
+)
 
-LOG_DIR = BASE_DIR / "logs"
+LOG_DIR = Path(
+    os.getenv("PIPELINE_LOG_DIR", BASE_DIR / "logs")
+)
 
 CONTRACTS_DIR = BASE_DIR / "contracts"
 
@@ -64,6 +73,10 @@ METADATA_DRIFT_DIR = (
     OUTPUT_DIR / "metadata_drift"
 )
 
+STAGING_DIR = (
+    OUTPUT_DIR / "_staging"
+)
+
 # =========================================================
 # Logging Configuration
 # =========================================================
@@ -76,11 +89,23 @@ LOG_FORMAT = (
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
+LOG_TO_FILE = (
+    os.getenv("PIPELINE_LOG_TO_FILE", "true")
+    .strip()
+    .lower()
+    not in {"0", "false", "no"}
+)
+
 # =========================================================
 # Incremental Loading
 # =========================================================
 
-ENABLE_INCREMENTAL_LOADING = True
+ENABLE_INCREMENTAL_LOADING = (
+    os.getenv("ENABLE_INCREMENTAL_LOADING", "true")
+    .strip()
+    .lower()
+    not in {"0", "false", "no"}
+)
 
 
 # =========================================================
@@ -91,11 +116,12 @@ SPARK_CONFIG = {
 
     "app_name": "DHIS2HealthPipeline",
 
-    "master": "local[*]",
+    "master": os.getenv("SPARK_MASTER", "local[2]"),
 
     "spark_conf": {
 
-        "spark.sql.shuffle.partitions": "8",
+        "spark.sql.shuffle.partitions":
+            os.getenv("SPARK_SQL_SHUFFLE_PARTITIONS", "4"),
 
         "spark.sql.adaptive.enabled": "true",
 
@@ -109,16 +135,28 @@ SPARK_CONFIG = {
             "org.apache.spark.serializer.KryoSerializer",
 
         "spark.driver.memory":
-            "4g",
+            os.getenv("SPARK_DRIVER_MEMORY", "2g"),
 
         "spark.executor.memory":
-            "4g",
+            os.getenv("SPARK_EXECUTOR_MEMORY", "2g"),
 
         "spark.sql.execution.arrow.pyspark.enabled":
             "true",
 
         "spark.sql.parquet.compression.codec":
-            "snappy"
+            "snappy",
+
+        "spark.sql.sources.partitionOverwriteMode":
+            "dynamic",
+
+        "spark.sql.sources.partitionColumnTypeInference.enabled":
+            "false",
+
+        "spark.io.encryption.enabled":
+            os.getenv("SPARK_IO_ENCRYPTION_ENABLED", "false"),
+
+        "spark.sql.files.maxRecordsPerFile":
+            os.getenv("SPARK_SQL_MAX_RECORDS_PER_FILE", "250000")
     }
 }
 
@@ -127,10 +165,29 @@ SPARK_CONFIG = {
 # =========================================================
 
 DQ_THRESHOLDS = {
-    "max_quarantine_rate": 0.10,
-    "max_unresolved_uid_rate": 0.15,
-    "min_fact_rows": 1
+    "max_quarantine_rate": float(
+        os.getenv("DQ_MAX_QUARANTINE_RATE", "0.25")
+    ),
+    "max_unresolved_uid_rate": float(
+        os.getenv("DQ_MAX_UNRESOLVED_UID_RATE", "0.15")
+    ),
+    "min_fact_rows": int(
+        os.getenv("DQ_MIN_FACT_ROWS", "1")
+    )
 }
+
+
+# =========================================================
+# Checkpointing
+# =========================================================
+
+CHECKPOINT_DIR = (
+    OUTPUT_DIR / "_checkpoints"
+)
+
+PIPELINE_STATE_FILE = (
+    CHECKPOINT_DIR / "pipeline_state.json"
+)
 
 
 # =========================================================
@@ -157,7 +214,11 @@ REQUIRED_DIRECTORIES = [
 
     METADATA_DRIFT_DIR,
 
-    DQ_DIR
+    DQ_DIR,
+
+    STAGING_DIR,
+
+    CHECKPOINT_DIR
 ]
 
 

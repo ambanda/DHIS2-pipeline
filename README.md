@@ -379,6 +379,32 @@ pip install -r requirements.txt
 
 ---
 
+# Validation and CI Commands
+
+## Run Unit and Smoke Tests
+
+```powershell
+python -m pytest -q
+```
+
+## Run Tiny Smoke Pipeline
+
+The smoke test builds a temporary one-row DHIS2 fixture and runs the full
+pipeline against it:
+
+```powershell
+python -m pytest tests/test_pipeline_smoke.py -q
+```
+
+## CI Command Sequence
+
+```powershell
+python -m pip install -r requirements.txt
+python -m pytest -q
+```
+
+---
+
 # Docker Setup
 
 ## Build Docker Image
@@ -393,6 +419,18 @@ docker build -t dhis2-pipeline .
 docker run dhis2-pipeline
 ```
 
+For larger local runs, give Docker enough memory and tune Spark explicitly:
+
+```powershell
+docker run --rm --memory=6g `
+  -e SPARK_MASTER=local[2] `
+  -e SPARK_DRIVER_MEMORY=2g `
+  -e SPARK_EXECUTOR_MEMORY=2g `
+  -e SPARK_SQL_SHUFFLE_PARTITIONS=4 `
+  -e DQ_MAX_QUARANTINE_RATE=0.25 `
+  dhis2-pipeline
+```
+
 ---
 
 # Running the Pipeline Locally
@@ -400,7 +438,17 @@ docker run dhis2-pipeline
 ## Execute Main Pipeline
 
 ```powershell
-python -m models.orchestration
+python pipeline.py
+```
+
+Useful environment variables:
+
+```powershell
+$env:PIPELINE_LOG_TO_FILE="false"
+$env:ENABLE_INCREMENTAL_LOADING="true"
+$env:SPARK_DRIVER_MEMORY="4g"
+$env:SPARK_EXECUTOR_MEMORY="4g"
+python pipeline.py
 ```
 
 ---
@@ -416,6 +464,13 @@ output/
 ├── dq/
 ├── analytics/
 └── validation/
+```
+
+Additional runtime outputs:
+
+```text
+output/quarantine/
+output/_checkpoints/pipeline_state.json
 ```
 
 ---
@@ -453,6 +508,9 @@ Fact datasets are partitioned by:
 ```text
 period
 ```
+
+Fact outputs are written by `year_month` using dynamic partition overwrite.
+Reruns replace touched partitions instead of appending duplicate rows.
 
 ---
 

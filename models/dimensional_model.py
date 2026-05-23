@@ -26,6 +26,26 @@ from models.utils.io_utils import (
 logger = get_logger(__name__)
 
 
+def validate_required_columns(
+    dataframe: DataFrame,
+    required_columns: list[str],
+    dataframe_name: str
+) -> None:
+
+    missing_columns = [
+        column_name
+        for column_name in required_columns
+        if column_name not in dataframe.columns
+    ]
+
+    if missing_columns:
+
+        raise ValueError(
+            f"{dataframe_name} is missing required columns: "
+            f"{missing_columns}"
+        )
+
+
 # =========================================================
 # Build Data Element Dimension
 # =========================================================
@@ -168,6 +188,19 @@ def build_dim_period(
         "Building dim_period"
     )
 
+    validate_required_columns(
+        fact_df,
+        [
+            "year_month",
+            "period_start_date",
+            "period_end_date",
+            "year",
+            "month",
+            "quarter"
+        ],
+        "clean_fact_df"
+    )
+
     dimension_df = (
         fact_df
         .select(
@@ -208,6 +241,40 @@ def build_fact_service_delivery(
         "Building fact_service_delivery"
     )
 
+    validate_required_columns(
+        clean_fact_df,
+        [
+            "dataelement",
+            "orgunit",
+            "categoryoptioncombo",
+            "year_month",
+            "period_start_date",
+            "period_end_date",
+            "year",
+            "month",
+            "quarter",
+            "data_element_name",
+            "category_option_combo_name",
+            "country_name",
+            "region_name",
+            "district_name",
+            "facility_name",
+            "value",
+            "numeric_value",
+            "boolean_value",
+            "value_type",
+            "is_null_value",
+            "is_blank_value",
+            "is_zero_value",
+            "has_reported_value",
+            "has_valid_numeric_value",
+            "is_late_submission",
+            "created",
+            "lastupdated"
+        ],
+        "clean_fact_df"
+    )
+
     fact_df = (
         clean_fact_df
         .select(
@@ -232,6 +299,11 @@ def build_fact_service_delivery(
             # =================================================
 
             "year_month",
+            "period_start_date",
+            "period_end_date",
+            "year",
+            "month",
+            "quarter",
 
             # =================================================
             # Descriptive Attributes
@@ -372,14 +444,46 @@ def write_fact_table(
             f"{missing_partitions}"
         )
 
+    partition_count = (
+        fact_df
+        .select(*FACT_PARTITIONS)
+        .distinct()
+        .count()
+    )
+
+    target_partitions = max(
+        1,
+        min(
+            partition_count,
+            24
+        )
+    )
+
+    logger.info(
+        f"Repartitioning fact table to "
+        f"{target_partitions} writer partitions"
+    )
+
+    write_df = (
+        fact_df
+        .repartition(
+            target_partitions,
+            *[
+                col(column_name)
+                for column_name in FACT_PARTITIONS
+            ]
+        )
+    )
+
     write_parquet(
-        dataframe=fact_df,
+        dataframe=write_df,
         output_path=str(
             FACTS_DIR
             / "fact_service_delivery"
         ),
         partition_columns=FACT_PARTITIONS,
-        mode="append"
+        mode="overwrite",
+        max_records_per_file=250000
     )
 
     logger.info(

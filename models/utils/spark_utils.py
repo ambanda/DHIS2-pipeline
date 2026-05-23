@@ -1,5 +1,8 @@
 import os
+import platform
 import sys
+import tempfile
+from pathlib import Path
 
 from pyspark.sql import SparkSession
 from pyspark.sql import DataFrame
@@ -17,7 +20,12 @@ PYTHON_EXECUTABLE = sys.executable
 os.environ["PYSPARK_PYTHON"] = PYTHON_EXECUTABLE
 os.environ["PYSPARK_DRIVER_PYTHON"] = PYTHON_EXECUTABLE
 
-os.environ["HADOOP_HOME"] = "C:\\hadoop"
+if platform.system() == "Windows":
+
+    os.environ.setdefault(
+        "HADOOP_HOME",
+        os.getenv("HADOOP_HOME", "C:\\hadoop")
+    )
 
 logger = get_logger(__name__)
 
@@ -83,36 +91,69 @@ def create_spark_session() -> SparkSession:
             "spark.pyspark.driver.python",
             python_executable
         )
-        .config("spark.driver.memory", "2g")
-        .config("spark.executor.memory", "2g")
-        .config("spark.sql.shuffle.partitions", "8")
-        .config(
-            "spark.driver.host",
-            "127.0.0.1"
-        )
-        .config(
-            "spark.driver.bindAddress",
-            "127.0.0.1"
-        )
-        .config(
-    "spark.hadoop.io.native.lib.available",
-    "true"
-)
-         .config(
-        "spark.sql.warehouse.dir",
-        "file:///C:/tmp/spark-warehouse"
     )
 
-    .config(
-        "spark.driver.extraJavaOptions",
-        "-Djava.io.tmpdir=C:/tmp"
-    )
+    if platform.system() == "Windows":
 
-    .config(
-        "spark.executor.extraJavaOptions",
-        "-Djava.io.tmpdir=C:/tmp"
-    )
-    )
+        spark_temp_dir = os.getenv(
+            "SPARK_LOCAL_TEMP_DIR",
+            str(
+                Path(tempfile.gettempdir())
+                / "dhis2-health-pipeline-spark"
+            )
+        )
+
+        Path(spark_temp_dir).mkdir(
+            parents=True,
+            exist_ok=True
+        )
+
+        spark_temp_dir = (
+            Path(spark_temp_dir)
+            .resolve()
+            .as_posix()
+        )
+
+        os.environ.setdefault(
+            "TMP",
+            spark_temp_dir
+        )
+
+        os.environ.setdefault(
+            "TEMP",
+            spark_temp_dir
+        )
+
+        builder = (
+            builder
+            .config(
+                "spark.driver.host",
+                "127.0.0.1"
+            )
+            .config(
+                "spark.driver.bindAddress",
+                "127.0.0.1"
+            )
+            .config(
+                "spark.hadoop.io.native.lib.available",
+                "true"
+            )
+            .config(
+                "spark.sql.warehouse.dir",
+                os.getenv(
+                    "SPARK_WAREHOUSE_DIR",
+                    f"file:///{spark_temp_dir}/spark-warehouse"
+                )
+            )
+            .config(
+                "spark.driver.extraJavaOptions",
+                f"-Djava.io.tmpdir={spark_temp_dir}"
+            )
+            .config(
+                "spark.executor.extraJavaOptions",
+                f"-Djava.io.tmpdir={spark_temp_dir}"
+            )
+        )
 
     spark = builder.getOrCreate()
 

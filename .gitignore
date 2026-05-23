@@ -41,6 +41,8 @@ Thumbs.db
 # Output data
 output/
 checkpoints/
+.test_runtime/
+spark_temp/
 
 # Large data files
 data/

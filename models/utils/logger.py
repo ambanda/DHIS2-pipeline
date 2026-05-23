@@ -1,10 +1,13 @@
 import logging
+from datetime import datetime
 from pathlib import Path
+import sys
 
 from models.config import (
     LOG_FILE,
     LOG_FORMAT,
-    LOG_LEVEL
+    LOG_LEVEL,
+    LOG_TO_FILE
 )
 
 
@@ -30,12 +33,46 @@ def get_logger(name: str) -> logging.Logger:
 
     formatter = logging.Formatter(LOG_FORMAT)
 
-    # =====================================================
-    # File Handler
-    # =====================================================
+    handlers = []
 
-    file_handler = logging.FileHandler(LOG_FILE)
-    file_handler.setFormatter(formatter)
+    if LOG_TO_FILE:
+
+        try:
+
+            file_handler = logging.FileHandler(
+                LOG_FILE,
+                encoding="utf-8"
+            )
+
+            file_handler.setFormatter(formatter)
+            handlers.append(file_handler)
+
+        except OSError as error:
+
+            fallback_file = (
+                Path(LOG_FILE).parent
+                / (
+                    "pipeline_"
+                    f"{datetime.utcnow():%Y%m%dT%H%M%SZ}.log"
+                )
+            )
+
+            try:
+
+                fallback_handler = logging.FileHandler(
+                    fallback_file,
+                    encoding="utf-8"
+                )
+
+                fallback_handler.setFormatter(formatter)
+                handlers.append(fallback_handler)
+
+            except OSError:
+
+                sys.stderr.write(
+                    "File logging disabled. "
+                    f"Could not open {LOG_FILE}: {error}\n"
+                )
 
     # =====================================================
     # Console Handler
@@ -43,9 +80,11 @@ def get_logger(name: str) -> logging.Logger:
 
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
+    handlers.append(console_handler)
 
-    logger.addHandler(file_handler)
-    logger.addHandler(console_handler)
+    for handler in handlers:
+
+        logger.addHandler(handler)
 
     logger.propagate = False
 
